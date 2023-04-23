@@ -1,42 +1,30 @@
 import { ApolloServer } from '@apollo/server';
 import { startStandaloneServer } from '@apollo/server/standalone';
+import { gql } from "graphql-tag";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { resolvers, typeDefs } from './src/graphql/modules/index.js'
+import { db } from './src/db/index.js';
 
-let typeDefs = 
-`
-  type Book {
-    title: String
-    author: String
-  }
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-  type Query {
-    books: [Book]
-  }
-`;
-
-const books = [
-  {
-    title : 'cinquenta tons de conrno',
-    author : 'Zé da padaria',
-  },
-  {
-    title : 'Alice',
-    author : 'Jonas do carro do ovo',
-  },
-];
-
-const resolvers = {
-  Query : {
-    books : () => books,
-  },
-};
+console.log(__dirname)
 
 const server = new ApolloServer({
   typeDefs,
   resolvers,
+  formatError : (err, formatError) => {
+    if (err.message.startsWith(`Email já cadastrado: `)) {
+      console.log(err.message);
+      return { message : err.message};
+    }
+    return err;
+  }
 });
 
 const { url } = await startStandaloneServer(server, {
-    listen : {port : 4000},
+  listen: { port: 4000 },
 });
 
-console.log(`🚀 Server ready at ${url}`);
+console.log(`🚀  Server ready at: ${url}`);

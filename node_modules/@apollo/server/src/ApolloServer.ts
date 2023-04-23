@@ -1,19 +1,20 @@
 import { isNodeLike } from '@apollo/utils.isnodelike';
 import type { Logger } from '@apollo/utils.logger';
 import { makeExecutableSchema } from '@graphql-tools/schema';
-import resolvable, { Resolvable } from '@josephg/resolvable';
+import resolvable, { type Resolvable } from '@josephg/resolvable';
 import {
   assertValidSchema,
-  DocumentNode,
+  type DocumentNode,
   GraphQLError,
-  GraphQLFieldResolver,
-  GraphQLFormattedError,
-  GraphQLSchema,
-  ParseOptions,
+  type GraphQLFieldResolver,
+  type GraphQLFormattedError,
+  type GraphQLSchema,
+  type ParseOptions,
   print,
-  TypedQueryDocumentNode,
-  ValidationContext,
-  ValidationRule,
+  printSchema,
+  type TypedQueryDocumentNode,
+  type ValidationContext,
+  type ValidationRule,
 } from 'graphql';
 import {
   type KeyValueCache,
@@ -22,7 +23,6 @@ import {
 } from '@apollo/utils.keyvaluecache';
 import loglevel from 'loglevel';
 import Negotiator from 'negotiator';
-import * as uuid from 'uuid';
 import { newCachePolicy } from './cachePolicy.js';
 import { determineApolloConfig } from './determineApolloConfig.js';
 import {
@@ -53,7 +53,7 @@ import type {
   HTTPGraphQLHead,
 } from './externalTypes/index.js';
 import { runPotentiallyBatchedHttpQuery } from './httpBatching.js';
-import { InternalPluginId, pluginIsInternal } from './internalPlugin.js';
+import { type InternalPluginId, pluginIsInternal } from './internalPlugin.js';
 import {
   preventCsrf,
   recommendedCsrfPreventionRequestHeaders,
@@ -63,6 +63,7 @@ import { newHTTPGraphQLHead, prettyJSONStringify } from './runHttpQuery.js';
 import { SchemaManager } from './utils/schemaManager.js';
 import { isDefined } from './utils/isDefined.js';
 import { UnreachableCaseError } from './utils/UnreachableCaseError.js';
+import { computeCoreSchemaHash } from './utils/computeCoreSchemaHash.js';
 import type { WithRequired } from '@apollo/utils.withrequired';
 import type { ApolloServerOptionsWithStaticSchema } from './externalTypes/constructor.js';
 import type { GatewayExecutor } from '@apollo/server-gateway-interface';
@@ -174,7 +175,9 @@ export interface ApolloServerInternals<TContext extends BaseContext> {
   rootValue?: ((parsedQuery: DocumentNode) => unknown) | unknown;
   validationRules: Array<ValidationRule>;
   fieldResolver?: GraphQLFieldResolver<any, TContext>;
-
+  // TODO(AS5): remove OR warn + ignore with this option set, ignore option and
+  // flip default behavior.
+  status400ForVariableCoercionErrors?: boolean;
   __testing_incrementalExecutionResults?: GraphQLExperimentalIncrementalExecutionResults;
 }
 
@@ -325,6 +328,8 @@ export class ApolloServer<in out TContext extends BaseContext = BaseContext> {
           ? null
           : config.csrfPrevention.requestHeaders ??
             recommendedCsrfPreventionRequestHeaders,
+      status400ForVariableCoercionErrors:
+        config.status400ForVariableCoercionErrors ?? false,
       __testing_incrementalExecutionResults:
         config.__testing_incrementalExecutionResults,
     };
@@ -724,13 +729,15 @@ export class ApolloServer<in out TContext extends BaseContext = BaseContext> {
       // same DocumentStore for different schemas because that might make us
       // treat invalid operations as valid. If we're using the default
       // DocumentStore, then we just create it from scratch each time we get a
-      // new schema. If we're using a user-provided DocumentStore, then we use a
-      // random prefix each time we get a new schema.
+      // new schema. If we're using a user-provided DocumentStore, then we use
+      // the schema hash as a prefix.
       documentStore:
         providedDocumentStore === undefined
           ? new InMemoryLRUCache<DocumentNode>()
           : providedDocumentStore,
-      documentStoreKeyPrefix: providedDocumentStore ? `${uuid.v4()}:` : '',
+      documentStoreKeyPrefix: providedDocumentStore
+        ? `${computeCoreSchemaHash(printSchema(schema))}:`
+        : '',
     };
   }
 
